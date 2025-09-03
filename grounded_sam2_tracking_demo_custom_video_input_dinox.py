@@ -25,7 +25,8 @@ TEXT_PROMPT = "hippopotamus."
 OUTPUT_VIDEO_PATH = "./hippopotamus_tracking_demo.mp4"
 SOURCE_VIDEO_FRAME_DIR = "./custom_video_frames"
 SAVE_TRACKING_RESULTS_DIR = "./tracking_results"
-API_TOKEN_FOR_DINOX = "Your API token"
+import os
+API_TOKEN_FOR_DINOX = os.getenv('DDS_API_TOKEN', 'your_api_token_here')
 PROMPT_TYPE_FOR_VIDEO = "box" # choose from ["point", "box", "mask"]
 BOX_THRESHOLD = 0.2
 IOU_THRESHOLD = 0.8  # 添加IOU阈值参数
@@ -58,19 +59,17 @@ Custom video input directly using video files
 """
 video_info = sv.VideoInfo.from_video_path(VIDEO_PATH)  # get video info
 print(video_info)
-frame_generator = sv.get_video_frames_generator(VIDEO_PATH, stride=1, start=0, end=None)
+frame_generator = sv.get_video_frames_generator(VIDEO_PATH)
 
 # saving video to frames
 source_frames = Path(SOURCE_VIDEO_FRAME_DIR)
 source_frames.mkdir(parents=True, exist_ok=True)
 
-with sv.ImageSink(
-    target_dir_path=source_frames, 
-    overwrite=True, 
-    image_name_pattern="{:05d}.jpg"
-) as sink:
-    for frame in tqdm(frame_generator, desc="Saving Video Frames"):
-        sink.save_image(frame)
+# Save video frames using OpenCV
+import cv2
+for frame_idx, frame in tqdm(enumerate(frame_generator), desc="Saving Video Frames"):
+    frame_path = source_frames / f"{frame_idx:05d}.jpg"
+    cv2.imwrite(str(frame_path), frame)
 
 # scan all the JPEG frame names in this directory
 frame_names = [
@@ -98,8 +97,12 @@ config = Config(API_TOKEN_FOR_DINOX)
 client = Client(config)
 
 # Step 3: run the task using V2Task class
-# if you are processing local image file, upload them to DDS server to get the image url
-image_url = client.upload_file(img_path)
+# Convert image to base64 for V2 API
+import base64
+with open(img_path, 'rb') as f:
+    image_data = f.read()
+    image_b64 = base64.b64encode(image_data).decode('utf-8')
+image_url = f"data:image/jpeg;base64,{image_b64}"
 
 task = V2Task(
     api_path="/v2/task/dinox/detection",
@@ -228,9 +231,7 @@ for frame_idx, segments in video_segments.items():
         class_id=np.array(object_ids, dtype=np.int32),
     )
     box_annotator = sv.BoxAnnotator()
-    annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections)
-    label_annotator = sv.LabelAnnotator()
-    annotated_frame = label_annotator.annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
+    annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
     mask_annotator = sv.MaskAnnotator()
     annotated_frame = mask_annotator.annotate(scene=annotated_frame, detections=detections)
     cv2.imwrite(os.path.join(SAVE_TRACKING_RESULTS_DIR, f"annotated_frame_{frame_idx:05d}.jpg"), annotated_frame)

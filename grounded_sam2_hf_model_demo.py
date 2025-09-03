@@ -77,7 +77,7 @@ with torch.no_grad():
 results = processor.post_process_grounded_object_detection(
     outputs,
     inputs.input_ids,
-    box_threshold=0.4,
+    threshold=0.4,
     text_threshold=0.3,
     target_sizes=[image.size[::-1]]
 )
@@ -140,10 +140,7 @@ Note that if you want to use default color map,
 you can set color=ColorPalette.DEFAULT
 """
 box_annotator = sv.BoxAnnotator(color=ColorPalette.from_hex(CUSTOM_COLOR_MAP))
-annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections)
-
-label_annotator = sv.LabelAnnotator(color=ColorPalette.from_hex(CUSTOM_COLOR_MAP))
-annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=detections, labels=labels)
+annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections, labels=labels)
 cv2.imwrite(os.path.join(OUTPUT_DIR, "groundingdino_annotated_image.jpg"), annotated_frame)
 
 mask_annotator = sv.MaskAnnotator(color=ColorPalette.from_hex(CUSTOM_COLOR_MAP))

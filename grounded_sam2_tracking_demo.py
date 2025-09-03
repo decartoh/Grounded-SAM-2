@@ -76,7 +76,7 @@ with torch.no_grad():
 results = processor.post_process_grounded_object_detection(
     outputs,
     inputs.input_ids,
-    box_threshold=0.25,
+    threshold=0.25,
     text_threshold=0.3,
     target_sizes=[image.size[::-1]]
 )
@@ -182,9 +182,7 @@ for frame_idx, segments in video_segments.items():
         class_id=np.array(object_ids, dtype=np.int32),
     )
     box_annotator = sv.BoxAnnotator()
-    annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections)
-    label_annotator = sv.LabelAnnotator()
-    annotated_frame = label_annotator.annotate(annotated_frame, detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
+    annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections, labels=[ID_TO_OBJECTS[i] for i in object_ids])
     mask_annotator = sv.MaskAnnotator()
     annotated_frame = mask_annotator.annotate(scene=annotated_frame, detections=detections)
     cv2.imwrite(os.path.join(save_dir, f"annotated_frame_{frame_idx:05d}.jpg"), annotated_frame)

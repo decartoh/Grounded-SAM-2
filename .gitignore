@@ -10,6 +10,21 @@ _C.*
 outputs/*
 checkpoints/*.pt
 *test*
+# Environment variables and API tokens  
+.env
+*.token
+
+# Output directories (demo results)
+outputs/
+tracking_results/
+custom_video_frames/
+
+# Generated videos
+*.mp4
+
+# Temporary files
+.gitignore.recommended
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

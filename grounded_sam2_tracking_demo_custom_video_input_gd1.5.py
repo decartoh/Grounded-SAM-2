@@ -25,7 +25,8 @@ TEXT_PROMPT = "hippopotamus."
 OUTPUT_VIDEO_PATH = "./hippopotamus_tracking_demo.mp4"
 SOURCE_VIDEO_FRAME_DIR = "./custom_video_frames"
 SAVE_TRACKING_RESULTS_DIR = "./tracking_results"
-API_TOKEN_FOR_GD1_5 = "Your API token"
+import os
+API_TOKEN_FOR_GD1_5 = os.getenv('DDS_API_TOKEN', 'your_api_token_here')
 PROMPT_TYPE_FOR_VIDEO = "box" # choose from ["point", "box", "mask"]
 BOX_THRESHOLD = 0.2
 IOU_THRESHOLD = 0.8  # 添加IOU阈值参数

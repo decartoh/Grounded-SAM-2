@@ -19,7 +19,8 @@ from sam2.sam2_image_predictor import SAM2ImagePredictor
 """
 Hyper parameters
 """
-API_TOKEN = "Your API token"
+import os
+API_TOKEN = os.getenv('DDS_API_TOKEN', 'your_api_token_here')
 TEXT_PROMPT = "car . building ."
 IMG_PATH = "notebooks/images/cars.jpg"
 SAM2_CHECKPOINT = "./checkpoints/sam2.1_hiera_large.pt"
@@ -61,7 +62,12 @@ if WITH_SLICE_INFERENCE:
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmpfile:
             temp_filename = tmpfile.name
         cv2.imwrite(temp_filename, image_slice)
-        image_url = client.upload_file(temp_filename)
+        # Convert image to base64 for V2 API
+        import base64
+        with open(temp_filename, 'rb') as f:
+            image_data = f.read()
+            image_b64 = base64.b64encode(image_data).decode('utf-8')
+        image_url = f"data:image/jpeg;base64,{image_b64}"
         task = V2Task(
             api_path="/v2/task/grounding_dino/detection",
             api_body={
@@ -109,7 +115,12 @@ if WITH_SLICE_INFERENCE:
     class_ids = detections.class_id
     input_boxes = detections.xyxy
 else:
-    image_url = client.upload_file(IMG_PATH)
+    # Convert image to base64 for V2 API
+    import base64
+    with open(IMG_PATH, 'rb') as f:
+        image_data = f.read()
+        image_b64 = base64.b64encode(image_data).decode('utf-8')
+    image_url = f"data:image/jpeg;base64,{image_b64}"
 
     task = V2Task(
         api_path="/v2/task/grounding_dino/detection",
@@ -207,10 +218,7 @@ detections = sv.Detections(
 )
 
 box_annotator = sv.BoxAnnotator()
-annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections)
-
-label_annotator = sv.LabelAnnotator()
-annotated_frame = label_annotator.annotate(scene=annotated_frame, detections=detections, labels=labels)
+annotated_frame = box_annotator.annotate(scene=img.copy(), detections=detections, labels=labels)
 cv2.imwrite(os.path.join(OUTPUT_DIR, "groundingdino_annotated_image.jpg"), annotated_frame)
 
 mask_annotator = sv.MaskAnnotator()

@@ -45,7 +45,7 @@ class GroundingDinoPredictor:
         self,
         image: "PIL.Image.Image",
         text_prompts: str,
-        box_threshold=0.25,
+        threshold=0.25,
         text_threshold=0.25,
     ):
         """

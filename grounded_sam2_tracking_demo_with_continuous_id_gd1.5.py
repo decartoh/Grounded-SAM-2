@@ -94,7 +94,8 @@ for start_frame_idx in range(0, len(frame_names), step):
 
     # run Grounding DINO 1.5 on the image
 
-    API_TOKEN_FOR_GD1_5 = "Your API token"
+    import os
+    API_TOKEN_FOR_GD1_5 = os.getenv('DDS_API_TOKEN', 'your_api_token_here')
 
     config = Config(API_TOKEN_FOR_GD1_5)
     # Step 2: initialize the client
