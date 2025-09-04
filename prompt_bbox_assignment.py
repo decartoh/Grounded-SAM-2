@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Prompt-to-BoundingBox Assignment Algorithms
+Prompt-to-BoundingBox Assignment Algorithm
 
-This module provides different strategies for assigning detected bounding boxes
-to text prompts, handling overlaps and optimizing for various criteria.
+Optimal assignment strategy for assigning detected bounding boxes to text prompts,
+maximizing total confidence while avoiding overlaps above IoU threshold.
 """
 
 import numpy as np
@@ -46,29 +46,20 @@ def calculate_iou(box1: List[float], box2: List[float]) -> float:
     return intersection_area / union_area if union_area > 0 else 0.0
 
 
-class PromptBBoxAssigner:
-    """Base class for prompt-to-bbox assignment algorithms."""
+class OptimalSumAssigner:
+    """Assigns bboxes to maximize total confidence sum with no overlaps."""
     
     def assign(self, prompt_detections: Dict[str, List[Tuple[List[float], float]]], 
-               overlap_threshold: float = 0.5) -> Tuple[List[List[float]], List[float], List[str]]:
-        """Assign bounding boxes to prompts.
+               overlap_threshold: float = 0.9) -> Tuple[List[List[float]], List[float], List[str]]:
+        """Find optimal 1:1 mapping that maximizes sum of confidence scores.
         
         Args:
             prompt_detections: Dict mapping prompt -> [(bbox, confidence), ...]
-            overlap_threshold: IoU threshold for considering boxes as overlapping
+            overlap_threshold: IoU threshold for considering boxes as overlapping (default: 0.9)
             
         Returns:
             Tuple of (bboxes, confidences, prompt_labels)
         """
-        raise NotImplementedError
-
-
-class OptimalSumAssigner(PromptBBoxAssigner):
-    """Assigns bboxes to maximize total confidence sum with no overlaps."""
-    
-    def assign(self, prompt_detections: Dict[str, List[Tuple[List[float], float]]], 
-               overlap_threshold: float = 0.5) -> Tuple[List[List[float]], List[float], List[str]]:
-        """Find optimal 1:1 mapping that maximizes sum of confidence scores."""
         
         prompts = list(prompt_detections.keys())
         
@@ -110,12 +101,15 @@ class OptimalSumAssigner(PromptBBoxAssigner):
         
         print(f"Evaluating {len(all_combinations)} possible 1:1 mappings...")
         
+        eliminated_by_iou = 0
+        valid_combinations = 0
+        
         for combination in all_combinations:
             # Extract bounding boxes from this combination
             boxes = [item[1] for item in combination]  # item = (prompt, bbox, conf)
             confidences = [item[2] for item in combination]
             
-            # Check if any boxes overlap
+            # Check if any boxes overlap above threshold
             has_overlap = False
             for i in range(len(boxes)):
                 for j in range(i + 1, len(boxes)):
@@ -126,15 +120,25 @@ class OptimalSumAssigner(PromptBBoxAssigner):
                 if has_overlap:
                     break
             
-            # If no overlaps, calculate total confidence
-            if not has_overlap:
+            # Count eliminations and valid combinations
+            if has_overlap:
+                eliminated_by_iou += 1
+            else:
+                valid_combinations += 1
+                # Calculate total confidence for valid combinations
                 total_confidence = sum(confidences)
                 if total_confidence > best_score:
                     best_score = total_confidence
                     best_mapping = combination
         
+        # Print assignment statistics
+        print(f"Assignment statistics:")
+        print(f"  • Total combinations evaluated: {len(all_combinations)}")
+        print(f"  • Eliminated due to IoU > {overlap_threshold}: {eliminated_by_iou}")
+        print(f"  • Valid (non-overlapping) combinations: {valid_combinations}")
+        
         if best_mapping is None:
-            print("No non-overlapping 1:1 mapping found")
+            print(f"No non-overlapping 1:1 mapping found with IoU threshold {overlap_threshold}")
             return [], [], []
         
         # Extract final results from best mapping
@@ -147,120 +151,3 @@ class OptimalSumAssigner(PromptBBoxAssigner):
             print(f"  {prompt} → confidence {conf:.3f}")
         
         return final_boxes, final_confidences, final_class_names
-
-
-class GreedyConfidenceAssigner(PromptBBoxAssigner):
-    """Assigns bboxes greedily by confidence, resolving overlaps iteratively."""
-    
-    def assign(self, prompt_detections: Dict[str, List[Tuple[List[float], float]]], 
-               overlap_threshold: float = 0.5) -> Tuple[List[List[float]], List[float], List[str]]:
-        """Greedy assignment starting with highest confidence prompts."""
-        
-        prompts = list(prompt_detections.keys())
-        
-        # Sort prompts by their best detection confidence
-        prompts_by_confidence = []
-        for prompt in prompts:
-            if prompt_detections[prompt]:
-                best_confidence = prompt_detections[prompt][0][1]  # Assume sorted by confidence
-                prompts_by_confidence.append((prompt, best_confidence))
-            else:
-                prompts_by_confidence.append((prompt, 0.0))
-        
-        prompts_by_confidence.sort(key=lambda x: x[1], reverse=True)
-        print(f"Processing prompts by confidence: {[f'{p}({c:.3f})' for p, c in prompts_by_confidence]}")
-        
-        # Greedy assignment
-        final_boxes = []
-        final_confidences = []
-        final_class_names = []
-        
-        for i, (prompt, best_conf) in enumerate(prompts_by_confidence):
-            detections = prompt_detections[prompt]
-            if not detections:
-                print(f"  {prompt}: No valid detections")
-                continue
-            
-            if i == 0:
-                # First prompt - take the best detection
-                bbox, confidence = detections[0]
-                final_boxes.append(bbox)
-                final_confidences.append(confidence)
-                final_class_names.append(prompt)
-                print(f"  {prompt}: ANCHOR → confidence {confidence:.3f}")
-            else:
-                # Subsequent prompts - find first non-overlapping detection
-                selected_detection = None
-                
-                for rank, (bbox, confidence) in enumerate(detections):
-                    # Check overlap with all previously selected boxes
-                    has_overlap = False
-                    for existing_bbox in final_boxes:
-                        iou = calculate_iou(bbox, existing_bbox)
-                        if iou > overlap_threshold:
-                            has_overlap = True
-                            print(f"    {prompt}: #{rank+1} detection overlaps (IoU: {iou:.3f})")
-                            break
-                    
-                    if not has_overlap:
-                        selected_detection = (bbox, confidence, rank + 1)
-                        break
-                
-                if selected_detection:
-                    bbox, confidence, rank = selected_detection
-                    final_boxes.append(bbox)
-                    final_confidences.append(confidence)
-                    final_class_names.append(prompt)
-                    print(f"  {prompt}: Using #{rank} detection → confidence {confidence:.3f}")
-                else:
-                    print(f"  {prompt}: No non-overlapping detection found")
-        
-        print(f"Final result: {len(final_boxes)} non-overlapping detections")
-        return final_boxes, final_confidences, final_class_names
-
-
-class SingleBestAssigner(PromptBBoxAssigner):
-    """Simple assigner that takes only the single best detection per prompt."""
-    
-    def assign(self, prompt_detections: Dict[str, List[Tuple[List[float], float]]], 
-               overlap_threshold: float = 0.5) -> Tuple[List[List[float]], List[float], List[str]]:
-        """Take single best detection per prompt, ignoring overlaps."""
-        
-        final_boxes = []
-        final_confidences = []
-        final_class_names = []
-        
-        for prompt, detections in prompt_detections.items():
-            if detections:
-                bbox, confidence = detections[0]  # Best detection
-                final_boxes.append(bbox)
-                final_confidences.append(confidence)
-                final_class_names.append(prompt)
-                print(f"  {prompt} → confidence {confidence:.3f}")
-            else:
-                print(f"  {prompt}: No detections")
-        
-        return final_boxes, final_confidences, final_class_names
-
-
-# Factory function to get assigners
-def get_assigner(algorithm: str = "optimal_sum") -> PromptBBoxAssigner:
-    """Get assignment algorithm by name.
-    
-    Args:
-        algorithm: One of 'optimal_sum', 'greedy_confidence', 'single_best'
-        
-    Returns:
-        PromptBBoxAssigner instance
-    """
-    algorithms = {
-        "optimal_sum": OptimalSumAssigner,
-        "greedy_confidence": GreedyConfidenceAssigner, 
-        "single_best": SingleBestAssigner,
-    }
-    
-    if algorithm not in algorithms:
-        raise ValueError(f"Unknown algorithm: {algorithm}. Available: {list(algorithms.keys())}")
-    
-    return algorithms[algorithm]()
-
