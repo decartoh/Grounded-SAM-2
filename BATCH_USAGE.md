@@ -10,15 +10,34 @@ This guide covers the **HuggingFace version** of batch video segmentation that r
 ```
 conda activate grounded-sam2
 
-python batch_video_segmentation_hf.py     \
---input_video_dir "/home/oshrihalimi/exp/motion_data/prompt4_i2v"     \
---prompts_file "/home/oshrihalimi/video-stack/syn_data/segmentation_prompts4.txt"     \
---output_dir "/home/oshrihalimi/exp/motion_data/prompt4_i2v/segmentation_hf_sam2"    \
- --grounding_model "IDEA-Research/grounding-dino-base"     \
- --box_threshold 0.6     \
- --text_threshold 0.5    \
- --overlap_threshold 0.8 \
---prompt_type box
+python batch_video_segmentation_hf.py \
+    --input_video_dir "/home/oshrihalimi/exp/motion_data/prompt4_i2v" \
+    --prompts_file "/home/oshrihalimi/video-stack/syn_data/segmentation_prompts4.txt" \
+    --output_dir "/home/oshrihalimi/exp/motion_data/prompt4_i2v/segmentation_hf_sam2" \
+    --grounding_model "IDEA-Research/grounding-dino-base" \
+    --box_threshold 0.6 \
+    --text_threshold 0.5 \
+    --overlap_threshold 0.8 \
+    --prompt_type box
+
+# Alternative example with different parameters
+python batch_video_segmentation_hf.py \
+    --input_video_dir "/home/oshrihalimi/exp/motion_data/prompts11_F161_G10" \
+    --prompts_file "/home/oshrihalimi/video-stack/syn_data/segmentation_prompts11.txt" \
+    --output_dir "/home/oshrihalimi/exp/motion_data/prompts11_F161_G10/segmentation_hf_sam2" \
+    --grounding_model "IDEA-Research/grounding-dino-base" \
+    --box_threshold 0.6 \
+    --text_threshold 0.2 \
+    --overlap_threshold 0.2 \
+    --prompt_type box \
+    --com 
+
+# With center of mass analysis
+python batch_video_segmentation_hf.py \
+    --input_video_dir "/path/to/videos" \
+    --prompts_file "/path/to/prompts.txt" \
+    --output_dir "/path/to/output" \
+    --com
 ```
 
 ## Data Preparation
@@ -58,6 +77,7 @@ python batch_video_segmentation_hf.py \
     --prompt_type <type>                  # [OPTIONAL] Prompt type for SAM2 video predictor (choices: point, box, mask; default: box)
     --sam2_checkpoint <path>              # [OPTIONAL] Path to SAM2 model checkpoint (default: "./checkpoints/sam2.1_hiera_large.pt")
     --sam2_config <path>                  # [OPTIONAL] Path to SAM2 model config (default: "configs/sam2.1/sam2.1_hiera_l.yaml")
+    --com                                 # [OPTIONAL] Calculate and visualize center of mass for each segmented object (default: False)
 ```
 
 ### Quick Reference Flags
@@ -77,6 +97,9 @@ python batch_video_segmentation_hf.py \
 --prompt_type         # Default: "box" (choices: box|point|mask)
 --sam2_checkpoint     # Default: "./checkpoints/sam2.1_hiera_large.pt"
 --sam2_config         # Default: "configs/sam2.1/sam2.1_hiera_l.yaml"
+
+# Analysis Features (Optional)
+--com                 # Enable center of mass calculation and visualization
 ```
 
 ### Required Parameters
@@ -124,6 +147,17 @@ python batch_video_segmentation_hf.py \
 - **Defaults**: `"./checkpoints/sam2.1_hiera_large.pt"` + `"configs/sam2.1/sam2.1_hiera_l.yaml"`
 - **Purpose**: SAM2 model files (must match each other)
 - **Note**: Download via `download_ckpts.sh`
+
+### Analysis Features
+
+#### `--com` (default: `False`)
+- **Type**: Flag (no argument needed)
+- **Purpose**: Calculate and visualize center of mass (centroid) for each segmented object
+- **Outputs**:
+  - **Video**: COM markers overlaid on segmentation video (different colors per object)
+  - **Data**: JSON file with per-frame COM coordinates (`*_com_data.json`)
+  - **Trajectory**: Static image showing COM path with white→black color gradient (`*_object_name_com.png`)
+- **Impact**: Adds ~5-10% processing time, useful for motion analysis and object tracking
 
 ## Algorithm Flow & Parameter Impact
 
@@ -176,6 +210,9 @@ python batch_video_segmentation_hf.py \
 output_directory/
 ├── video_001_segmented.mp4     # Segmented video with overlays
 ├── video_001_metadata.json     # Detection and processing info
+├── video_001_com_data.json     # Center of mass data (if --com enabled)
+├── video_001_koala_com.png     # COM trajectory image for koala (if --com enabled)
+├── video_001_parrot_com.png    # COM trajectory image for parrot (if --com enabled)
 ├── video_002_segmented.mp4     
 ├── video_002_metadata.json
 └── ...
@@ -205,10 +242,34 @@ output_directory/
   "parameters": {
     "box_threshold": 0.5,
     "text_threshold": 0.3,
-    "prompt_type": "box"
+    "prompt_type": "box",
+    "center_of_mass_enabled": true
+  },
+  "center_of_mass": {
+    "com_data_file": "video_001_com_data.json",
+    "trajectory_images": ["video_001_koala_com.png", "video_001_parrot_com.png"]
   }
 }
 ```
+
+### Center of Mass Data Format (when --com enabled)
+```json
+{
+  "koala": [
+    {"frame": 0, "x": 150.5, "y": 200.3},
+    {"frame": 1, "x": 152.1, "y": 198.7},
+    {"frame": 2, "x": null, "y": null},
+    {"frame": 3, "x": 155.8, "y": 195.2}
+  ],
+  "parrot": [
+    {"frame": 0, "x": 350.2, "y": 150.1},
+    {"frame": 1, "x": 348.9, "y": 148.5},
+    {"frame": 2, "x": 347.1, "y": 147.2},
+    {"frame": 3, "x": null, "y": null}
+  ]
+}
+```
+**Note**: `null` values indicate frames where the object was not detected or segmented.
 
 ## Advanced Features
 

@@ -51,6 +51,8 @@ def parse_args():
     parser.add_argument("--sam2_config", type=str, 
                        default="configs/sam2.1/sam2.1_hiera_l.yaml",
                        help="Path to SAM2 model config")
+    parser.add_argument("--com", action="store_true",
+                       help="Calculate and visualize center of mass for each segmented object")
     return parser.parse_args()
 
 
@@ -236,9 +238,127 @@ def calculate_iou(box1, box2):
     return intersection_area / union_area
 
 
+def calculate_center_of_mass(mask):
+    """
+    Calculate the center of mass (centroid) for a binary mask.
+    
+    Args:
+        mask: 2D numpy array (binary mask)
+        
+    Returns:
+        tuple: (x, y) coordinates of center of mass, or None if mask is empty
+    """
+    if mask.ndim > 2:
+        mask = mask.squeeze()
+    
+    # Find all non-zero pixels
+    y_indices, x_indices = np.where(mask > 0)
+    
+    if len(x_indices) == 0 or len(y_indices) == 0:
+        return None
+    
+    # Calculate center of mass
+    center_x = np.mean(x_indices)
+    center_y = np.mean(y_indices)
+    
+    return (center_x, center_y)
+
+
+def draw_com_marker(frame, com_position, color=(0, 255, 255), size=8):
+    """
+    Draw a center of mass marker on the frame.
+    
+    Args:
+        frame: OpenCV frame (numpy array)
+        com_position: (x, y) tuple of center coordinates
+        color: BGR color tuple (default: yellow)
+        size: Size of the marker
+        
+    Returns:
+        frame: Frame with COM marker drawn
+    """
+    if com_position is None:
+        return frame
+    
+    x, y = int(com_position[0]), int(com_position[1])
+    
+    # Draw crosshair marker
+    cv2.drawMarker(frame, (x, y), color, cv2.MARKER_CROSS, size, thickness=2)
+    # Add a circle around it
+    cv2.circle(frame, (x, y), size//2, color, thickness=2)
+    
+    return frame
+
+
+def draw_com_trajectory_on_image(image_path, com_trajectory, output_path):
+    """
+    Draw center of mass trajectory on a static image with color gradient.
+    
+    Args:
+        image_path: Path to the input image
+        com_trajectory: List of COM positions [(x1, y1), (x2, y2), ...] or [None, ...]
+        output_path: Path to save the output image
+    """
+    # Load image
+    image = cv2.imread(str(image_path))
+    if image is None:
+        print(f"Warning: Could not load image {image_path}")
+        return
+    
+    # Filter out None values and keep track of frame indices
+    valid_trajectory = []
+    frame_indices = []
+    
+    for frame_idx, com_pos in enumerate(com_trajectory):
+        if com_pos is not None:
+            valid_trajectory.append(com_pos)
+            frame_indices.append(frame_idx)
+    
+    if len(valid_trajectory) < 2:
+        print("Warning: Not enough valid COM positions to draw trajectory")
+        # Save the original image
+        cv2.imwrite(str(output_path), image)
+        return
+    
+    # Draw trajectory with color gradient from white to black
+    total_frames = len(com_trajectory)
+    
+    # Draw line segments between consecutive points
+    for i in range(len(valid_trajectory) - 1):
+        start_pos = valid_trajectory[i]
+        end_pos = valid_trajectory[i + 1]
+        
+        # Calculate color based on frame position (white=255 to black=0)
+        frame_progress = frame_indices[i] / (total_frames - 1) if total_frames > 1 else 0
+        color_intensity = int(255 * (1 - frame_progress))  # White (255) to Black (0)
+        color = (color_intensity, color_intensity, color_intensity)  # BGR
+        
+        # Draw thick line segment
+        cv2.line(image, 
+                (int(start_pos[0]), int(start_pos[1])), 
+                (int(end_pos[0]), int(end_pos[1])), 
+                color, thickness=3)
+    
+    # Draw markers at key points (start=white, end=black)
+    if len(valid_trajectory) > 0:
+        # Start point (white)
+        start_pos = valid_trajectory[0]
+        cv2.circle(image, (int(start_pos[0]), int(start_pos[1])), 6, (255, 255, 255), -1)
+        cv2.circle(image, (int(start_pos[0]), int(start_pos[1])), 6, (0, 0, 0), 2)  # Black border
+        
+        # End point (black)  
+        end_pos = valid_trajectory[-1]
+        cv2.circle(image, (int(end_pos[0]), int(end_pos[1])), 6, (0, 0, 0), -1)
+        cv2.circle(image, (int(end_pos[0]), int(end_pos[1])), 6, (255, 255, 255), 2)  # White border
+    
+    # Save the image
+    cv2.imwrite(str(output_path), image)
+    print(f"✅ COM trajectory saved to: {output_path}")
+
+
 def process_single_video(video_path, prompts_text, processor, grounding_model, 
                         video_predictor, image_predictor, device, output_base_dir, 
-                        box_threshold, text_threshold, overlap_threshold, prompt_type):
+                        box_threshold, text_threshold, overlap_threshold, prompt_type, enable_com=False):
     """Process a single video with given prompts."""
     
     video_name = video_path.stem
@@ -251,6 +371,11 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
         
         # Step 1: Extract video frames
         video_info, frame_count = extract_video_frames(video_path, temp_frames_dir)
+        
+        # Initialize center of mass tracking if enabled
+        com_data = {} if enable_com else None
+        if enable_com:
+            print("📍 Center of mass tracking enabled")
         
         # Step 2: Get first frame for object detection
         first_frame_path = temp_frames_dir / "00000.jpg"
@@ -370,6 +495,16 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
             # Load frame
             frame = cv2.imread(str(frame_path))
             
+            # Initialize COM data for this frame if enabled
+            if enable_com:
+                # Ensure all object IDs have entries for this frame
+                for obj_id in range(len(labels)):
+                    if obj_id not in com_data:
+                        com_data[obj_id] = []
+                    # Pad with None if needed to match frame index
+                    while len(com_data[obj_id]) < frame_idx:
+                        com_data[obj_id].append(None)
+            
             # Get masks for this frame
             if frame_idx in video_segments:
                 masks_data = video_segments[frame_idx]
@@ -380,24 +515,39 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
                 class_ids = []
                 confidences = []
                 
-                for obj_id in sorted(masks_data.keys()):
-                    mask = masks_data[obj_id]
-                    
-                    # Handle potential 3D mask (squeeze to 2D)
-                    if mask.ndim > 2:
-                        mask = mask.squeeze()
-                    
-                    if mask.any():  # Only process non-empty masks
-                        mask_list.append(mask)
+                # Process each tracked object
+                for obj_id in range(len(labels)):
+                    if obj_id in masks_data:
+                        mask = masks_data[obj_id]
                         
-                        # Get bounding box from mask
-                        y_indices, x_indices = np.where(mask)
-                        if len(x_indices) > 0 and len(y_indices) > 0:
-                            x_min, x_max = x_indices.min(), x_indices.max()
-                            y_min, y_max = y_indices.min(), y_indices.max()
-                            box_list.append([x_min, y_min, x_max, y_max])
-                            class_ids.append(obj_id)
-                            confidences.append(1.0)  # Tracking confidence
+                        # Handle potential 3D mask (squeeze to 2D)
+                        if mask.ndim > 2:
+                            mask = mask.squeeze()
+                        
+                        if mask.any():  # Only process non-empty masks
+                            mask_list.append(mask)
+                            
+                            # Calculate center of mass if enabled
+                            if enable_com:
+                                com_position = calculate_center_of_mass(mask)
+                                com_data[obj_id].append(com_position)
+                            
+                            # Get bounding box from mask
+                            y_indices, x_indices = np.where(mask)
+                            if len(x_indices) > 0 and len(y_indices) > 0:
+                                x_min, x_max = x_indices.min(), x_indices.max()
+                                y_min, y_max = y_indices.min(), y_indices.max()
+                                box_list.append([x_min, y_min, x_max, y_max])
+                                class_ids.append(obj_id)
+                                confidences.append(1.0)  # Tracking confidence
+                        else:
+                            # Empty mask - add None for COM
+                            if enable_com:
+                                com_data[obj_id].append(None)
+                    else:
+                        # Object not detected in this frame - add None for COM  
+                        if enable_com:
+                            com_data[obj_id].append(None)
                 
                 if mask_list:
                     # Create supervision Detections object
@@ -413,17 +563,72 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
                     annotated_frame = box_annotator.annotate(scene=annotated_frame, detections=detections, 
                                                            labels=[ID_TO_OBJECTS[i] for i in class_ids])
                     
+                    # Add center of mass markers if enabled
+                    if enable_com and frame_idx in video_segments:
+                        for obj_id in sorted(video_segments[frame_idx].keys()):
+                            if obj_id in com_data and frame_idx < len(com_data[obj_id]):
+                                com_position = com_data[obj_id][frame_idx]
+                                if com_position is not None:
+                                    # Use different colors for different objects
+                                    colors = [(0, 255, 255), (255, 0, 255), (255, 255, 0), (0, 255, 0), (255, 0, 0)]
+                                    color = colors[obj_id % len(colors)]
+                                    annotated_frame = draw_com_marker(annotated_frame, com_position, color)
+                    
                     # Write annotated frame
                     out_video.write(annotated_frame)
                 else:
                     # No masks, write original frame
                     out_video.write(frame)
             else:
-                # No tracking data, write original frame
+                # No tracking data, write original frame and add None entries for COM
+                if enable_com:
+                    for obj_id in range(len(labels)):
+                        com_data[obj_id].append(None)
                 out_video.write(frame)
         
         # Release video writer
         out_video.release()
+        
+        # Step 7.5: Process center of mass data if enabled
+        if enable_com and com_data:
+            print("📍 Processing center of mass data...")
+            
+            # Export COM data to JSON file
+            com_export_data = {}
+            for obj_id, com_positions in com_data.items():
+                object_label = ID_TO_OBJECTS.get(obj_id, f"object_{obj_id}")
+                com_export_data[object_label] = []
+                
+                for frame_idx, com_pos in enumerate(com_positions):
+                    if com_pos is not None:
+                        com_export_data[object_label].append({
+                            "frame": frame_idx,
+                            "x": float(com_pos[0]),
+                            "y": float(com_pos[1])
+                        })
+                    else:
+                        com_export_data[object_label].append({
+                            "frame": frame_idx,
+                            "x": None,
+                            "y": None
+                        })
+            
+            # Save COM data to file
+            com_data_path = Path(output_base_dir) / f"{video_name}_com_data.json"
+            with open(com_data_path, 'w') as f:
+                json.dump(com_export_data, f, indent=2)
+            print(f"✅ COM data exported to: {com_data_path}")
+            
+            # Create trajectory visualization on first frame image
+            first_frame_path = temp_frames_dir / "00000.jpg"
+            if first_frame_path.exists():
+                # For each object, create a trajectory image
+                for obj_id, com_positions in com_data.items():
+                    object_label = ID_TO_OBJECTS.get(obj_id, f"object_{obj_id}")
+                    trajectory_output_path = Path(output_base_dir) / f"{video_name}_{object_label}_com.png"
+                    
+                    # Create trajectory visualization
+                    draw_com_trajectory_on_image(first_frame_path, com_positions, trajectory_output_path)
         
         # Step 8: Save metadata
         metadata = {
@@ -439,9 +644,18 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
             "parameters": {
                 "box_threshold": box_threshold,
                 "text_threshold": text_threshold,
-                "prompt_type": prompt_type
+                "prompt_type": prompt_type,
+                "center_of_mass_enabled": enable_com
             }
         }
+        
+        # Add COM information to metadata if enabled
+        if enable_com and com_data:
+            metadata["center_of_mass"] = {
+                "com_data_file": f"{video_name}_com_data.json",
+                "trajectory_images": [f"{video_name}_{ID_TO_OBJECTS.get(obj_id, f'object_{obj_id}')}_com.png" 
+                                   for obj_id in com_data.keys()]
+            }
         
         metadata_path = Path(output_base_dir) / f"{video_name}_metadata.json"
         with open(metadata_path, 'w') as f:
@@ -484,7 +698,7 @@ def main():
                 video_file, prompt, processor, grounding_model,
                 video_predictor, image_predictor, device, args.output_dir,
                 args.box_threshold, args.text_threshold, 
-                args.overlap_threshold, args.prompt_type
+                args.overlap_threshold, args.prompt_type, args.com
             )
         except Exception as e:
             print(f"❌ Error processing {video_file}: {e}")
