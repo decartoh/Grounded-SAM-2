@@ -1,13 +1,31 @@
-# HuggingFace Batch Video Segmentation Guide
+# Batch Processing Guide
 
-**🚀 Process multiple videos locally with text prompts using HuggingFace GroundingDINO + SAM2**
+**🚀 Process images and videos locally with text prompts using HuggingFace GroundingDINO + SAM2**
 
 ## Overview
 
-This guide covers the **HuggingFace version** of batch video segmentation that runs completely locally without API tokens or quotas.
+This guide covers batch processing capabilities that run completely locally without API tokens or quotas:
+- **Video Processing**: Full video segmentation with object tracking
+- **Image Processing**: Single-frame segmentation with automatic prompt detection  
+- **Mixed Processing**: Handle both images and videos in the same directory
 
 ## Quick Start
+
+### Mixed Image/Video Processing (NEW!)
+```bash
+conda activate grounded-sam2
+
+# Process both images and videos in the same directory
+python batch_mixed_segmentation.py \
+    --input_dir "/path/to/mixed/media" \
+    --output_dir "/path/to/results" \
+    --box_threshold 0.05 \
+    --text_threshold 0.05 \
+    --grounding_model "IDEA-Research/grounding-dino-base"
 ```
+
+### Video-Only Processing
+```bash
 conda activate grounded-sam2
 
 python batch_video_segmentation_hf.py \
@@ -38,6 +56,71 @@ python batch_video_segmentation_hf.py \
     --prompts_file "/path/to/prompts.txt" \
     --output_dir "/path/to/output" \
     --com
+```
+
+## Mixed Image/Video Processing
+
+The new `batch_mixed_segmentation.py` script automatically processes both images and videos in the same directory:
+
+### Key Features
+- **🖼️ Auto Image Detection**: Finds PNG/JPG files automatically
+- **📝 Smart Prompts**: Reads prompts from `*_seg.txt` files (e.g., `image_001_seg.txt`)
+- **🎬 Video Support**: Processes MP4 files with full tracking pipeline
+- **⚡ Unified Output**: Images get `_seg` suffix, videos get `_segmented` suffix
+
+### Directory Structure
+```
+input_directory/
+├── image_001.png           # Image file
+├── image_001_seg.txt       # Contains: "raccoon"
+├── image_002.jpg           # Another image  
+├── image_002_seg.txt       # Contains: "alligator"
+├── video_001.mp4           # Video file (optional)
+└── ...
+```
+
+### Command Line Interface
+```bash
+python batch_mixed_segmentation.py \
+    --input_dir <path>                    # [REQUIRED] Directory with images/videos
+    --output_dir <path>                   # [REQUIRED] Output directory
+    --grounding_model <model_id>          # [OPTIONAL] GroundingDINO model (default: tiny)
+    --box_threshold <float>               # [OPTIONAL] Detection threshold (default: 0.5)
+    --text_threshold <float>              # [OPTIONAL] Text threshold (default: 0.3)
+    --overlap_threshold <float>           # [OPTIONAL] IoU threshold (default: 0.9)
+    --prompt_type <type>                  # [OPTIONAL] box|point|mask (default: box)
+    --port <int>                          # [OPTIONAL] Port reference (default: 8666)
+```
+
+### Output Structure
+```
+output_directory/
+├── image_001_seg.png       # Segmented image with masks/boxes
+├── image_001_metadata.json # Detection info and parameters
+├── image_002_seg.jpg       # Segmented image
+├── image_002_metadata.json # Detection metadata  
+├── video_001_segmented.mp4 # Segmented video (if videos present)
+├── video_001_metadata.json # Video processing metadata
+└── ...
+```
+
+### Example Usage
+```bash
+# High-quality processing
+python batch_mixed_segmentation.py \
+    --input_dir "/tmp/my_dataset" \
+    --output_dir "/tmp/results" \
+    --grounding_model "IDEA-Research/grounding-dino-base" \
+    --box_threshold 0.05 \
+    --text_threshold 0.05
+
+# Fast processing  
+python batch_mixed_segmentation.py \
+    --input_dir "/tmp/my_dataset" \
+    --output_dir "/tmp/results" \
+    --grounding_model "IDEA-Research/grounding-dino-tiny" \
+    --box_threshold 0.3 \
+    --text_threshold 0.2
 ```
 
 ## Data Preparation

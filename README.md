@@ -50,6 +50,7 @@ Grounded SAM 2 does not introduce significant methodological changes compared to
   - [Grounded SAM 2 Video Object Tracking with Custom Video Input (using Grounding DINO 1.5 & 1.6)](#grounded-sam-2-video-object-tracking-demo-with-custom-video-input-with-grounding-dino-15--16)
   - [Grounded SAM 2 Video Object Tracking Demo (with DINO-X)](#grounded-sam-2-video-object-tracking-demo-with-custom-video-input-with-dino-x)
   - [Grounded SAM 2 Video Object Tracking with Continues ID (using Grounding DINO)](#grounded-sam-2-video-object-tracking-with-continuous-id-with-grounding-dino)
+  - [Batch Mixed Image/Video Processing](#batch-mixed-imagevideo-processing)
 - [Grounded SAM 2 Florence-2 Demos](#grounded-sam-2-florence-2-demos)
   - [Grounded SAM 2 Florence-2 Image Demo](#grounded-sam-2-florence-2-image-demo)
   - [Grounded SAM 2 Florence-2 Image Auto-Labeling Demo](#grounded-sam-2-florence-2-image-auto-labeling-demo)
@@ -343,7 +344,53 @@ This method enables **real-time object tracking** with **ID continuity** from a 
 python grounded_sam2_tracking_camera_with_continuous_id.py
 ```
 
+## Batch Mixed Image/Video Processing
 
+Process both images and videos in the same directory with automatic detection and segmentation. Perfect for mixed media datasets where you have both static images and video files.
+
+### Features
+- **🖼️ Image Processing**: Automatically detects PNG/JPG files and processes them with SAM2 segmentation
+- **🎬 Video Processing**: Full video tracking pipeline for MP4 files  
+- **📝 Smart Prompts**: Reads prompts from `*_seg.txt` files for images
+- **⚡ Unified Pipeline**: Handles mixed media in one command
+- **💾 Rich Output**: Saves segmented images with `_seg` suffix and detailed metadata
+
+### Quick Start
+```bash
+conda activate grounded-sam2
+
+python batch_mixed_segmentation.py \
+    --input_dir "/path/to/mixed/media" \
+    --output_dir "/path/to/results" \
+    --box_threshold 0.05 \
+    --text_threshold 0.05 \
+    --grounding_model "IDEA-Research/grounding-dino-base"
+```
+
+### Directory Structure
+```
+input_directory/
+├── image_001.png           # Image file
+├── image_001_seg.txt       # Prompts for image_001 (e.g., "raccoon")  
+├── image_002.jpg           # Another image
+├── image_002_seg.txt       # Prompts for image_002 (e.g., "alligator")
+├── video_001.mp4           # Video file (optional)
+└── ...
+```
+
+### Output Structure
+```
+output_directory/
+├── image_001_seg.png       # Segmented image with overlays
+├── image_001_metadata.json # Detection metadata for image
+├── image_002_seg.jpg       # Segmented image with overlays  
+├── image_002_metadata.json # Detection metadata for image
+├── video_001_segmented.mp4 # Segmented video (if videos present)
+├── video_001_metadata.json # Video metadata
+└── ...
+```
+
+**📖 For detailed documentation, see [BATCH_USAGE.md](./BATCH_USAGE.md)**
 
 ## Grounded SAM 2 Florence-2 Demos
 ### Grounded SAM 2 Florence-2 Image Demo
