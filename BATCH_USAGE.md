@@ -89,7 +89,6 @@ python batch_mixed_segmentation.py \
     --text_threshold <float>              # [OPTIONAL] Text threshold (default: 0.3)
     --overlap_threshold <float>           # [OPTIONAL] IoU threshold (default: 0.9)
     --prompt_type <type>                  # [OPTIONAL] box|point|mask (default: box)
-    --port <int>                          # [OPTIONAL] Port reference (default: 8666)
 ```
 
 ### Output Structure

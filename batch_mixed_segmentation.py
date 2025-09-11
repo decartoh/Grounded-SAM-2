@@ -50,8 +50,6 @@ def parse_args():
     parser.add_argument("--sam2_config", type=str, 
                        default="configs/sam2.1/sam2.1_hiera_l.yaml",
                        help="Path to SAM2 model config")
-    parser.add_argument("--port", type=int, default=8666,
-                       help="Port number (for reference, not used in processing)")
     return parser.parse_args()
 
 
@@ -622,7 +620,6 @@ def main():
     print(f"🚀 Starting batch mixed segmentation processing")
     print(f"   Input directory: {args.input_dir}")
     print(f"   Output directory: {args.output_dir}")
-    print(f"   Port (reference): {args.port}")
     
     # Get image and video files
     image_files = get_image_files(args.input_dir)
