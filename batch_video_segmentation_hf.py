@@ -509,11 +509,24 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
         out_video = cv2.VideoWriter(str(output_video_path), fourcc, video_info.fps, 
                                    (video_info.width, video_info.height))
         
+        # Create separate binary mask video writers for each detected object
+        ID_TO_OBJECTS = {i: label for i, label in enumerate(labels)}
+        binary_mask_video_writers = {}
+        binary_mask_video_paths = {}
+        
+        for obj_id, label in ID_TO_OBJECTS.items():
+            # Use prompt index instead of label content for filename
+            binary_mask_video_path = Path(output_base_dir) / f"{video_name}_{obj_id}_segmented_bin.mp4"
+            binary_mask_video_paths[obj_id] = binary_mask_video_path
+            
+            # Binary mask video writer setup (grayscale) for each object
+            out_binary_video = cv2.VideoWriter(str(binary_mask_video_path), fourcc, video_info.fps,
+                                              (video_info.width, video_info.height), isColor=False)
+            binary_mask_video_writers[obj_id] = out_binary_video
+        
         # Annotation setup
         box_annotator = sv.BoxAnnotator()
         mask_annotator = sv.MaskAnnotator()
-        
-        ID_TO_OBJECTS = {i: label for i, label in enumerate(labels)}
         
         # Process each frame
         frame_paths = sorted(temp_frames_dir.glob("*.jpg"))
@@ -602,38 +615,81 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
                     
                     # Write annotated frame
                     out_video.write(annotated_frame)
+                    
+                    # Create binary mask frame for each object and write to separate videos
+                    # Initialize empty frames for all objects
+                    object_mask_frames = {obj_id: np.zeros((video_info.height, video_info.width), dtype=np.uint8) 
+                                         for obj_id in ID_TO_OBJECTS.keys()}
+                    
+                    # Process each mask and write to corresponding object's video
+                    for mask, obj_id in zip(mask_list, class_ids):
+                        # Ensure mask is boolean
+                        if mask.dtype != bool:
+                            mask_bool = mask.astype(bool)
+                        else:
+                            mask_bool = mask
+                        
+                        # Handle potential size mismatch by resizing if needed
+                        if mask_bool.shape != (video_info.height, video_info.width):
+                            # Resize mask to match video dimensions if needed
+                            mask_bool = cv2.resize(mask_bool.astype(np.uint8), 
+                                                  (video_info.width, video_info.height), 
+                                                  interpolation=cv2.INTER_NEAREST).astype(bool)
+                        
+                        # Convert to uint8 grayscale (0 or 255) for this object
+                        binary_mask_frame = (mask_bool.astype(np.uint8)) * 255
+                        object_mask_frames[obj_id] = binary_mask_frame
+                    
+                    # Write binary mask frames to respective video writers
+                    for obj_id in ID_TO_OBJECTS.keys():
+                        if obj_id in binary_mask_video_writers:
+                            binary_mask_video_writers[obj_id].write(object_mask_frames[obj_id])
                 else:
                     # No masks, write original frame
                     out_video.write(frame)
+                    # Write empty binary mask frame (all zeros) for all objects
+                    empty_mask_frame = np.zeros((video_info.height, video_info.width), dtype=np.uint8)
+                    for obj_id in ID_TO_OBJECTS.keys():
+                        if obj_id in binary_mask_video_writers:
+                            binary_mask_video_writers[obj_id].write(empty_mask_frame)
             else:
                 # No tracking data, write original frame and add None entries for COM
                 if enable_com:
                     for obj_id in range(len(labels)):
                         com_data[obj_id].append(None)
                 out_video.write(frame)
+                # Write empty binary mask frame for all objects
+                empty_mask_frame = np.zeros((video_info.height, video_info.width), dtype=np.uint8)
+                for obj_id in ID_TO_OBJECTS.keys():
+                    if obj_id in binary_mask_video_writers:
+                        binary_mask_video_writers[obj_id].write(empty_mask_frame)
         
-        # Release video writer
+        # Release video writers
         out_video.release()
+        for obj_id, writer in binary_mask_video_writers.items():
+            writer.release()
         
         # Step 7.5: Process center of mass data if enabled
         if enable_com and com_data:
             print("📍 Processing center of mass data...")
             
             # Export COM data to JSON file
+            # Use prompt index as key instead of label content
             com_export_data = {}
             for obj_id, com_positions in com_data.items():
-                object_label = ID_TO_OBJECTS.get(obj_id, f"object_{obj_id}")
-                com_export_data[object_label] = []
+                # Use prompt index as key (e.g., "0", "1") instead of label content
+                prompt_key = str(obj_id)
+                com_export_data[prompt_key] = []
                 
                 for frame_idx, com_pos in enumerate(com_positions):
                     if com_pos is not None:
-                        com_export_data[object_label].append({
+                        com_export_data[prompt_key].append({
                             "frame": frame_idx,
                             "x": float(com_pos[0]),
                             "y": float(com_pos[1])
                         })
                     else:
-                        com_export_data[object_label].append({
+                        com_export_data[prompt_key].append({
                             "frame": frame_idx,
                             "x": None,
                             "y": None
@@ -650,8 +706,8 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
             if first_frame_path.exists():
                 # For each object, create a trajectory image
                 for obj_id, com_positions in com_data.items():
-                    object_label = ID_TO_OBJECTS.get(obj_id, f"object_{obj_id}")
-                    trajectory_output_path = Path(output_base_dir) / f"{video_name}_{object_label}_com.png"
+                    # Use prompt index instead of label content for filename
+                    trajectory_output_path = Path(output_base_dir) / f"{video_name}_{obj_id}_com.png"
                     
                     # Create trajectory visualization
                     draw_com_trajectory_on_image(first_frame_path, com_positions, trajectory_output_path)
@@ -679,8 +735,8 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
         if enable_com and com_data:
             metadata["center_of_mass"] = {
                 "com_data_file": f"{video_name}_com_data.json",
-                "trajectory_images": [f"{video_name}_{ID_TO_OBJECTS.get(obj_id, f'object_{obj_id}')}_com.png" 
-                                   for obj_id in com_data.keys()]
+                "trajectory_images": [f"{video_name}_{obj_id}_com.png" 
+                                   for obj_id in sorted(com_data.keys())]
             }
         
         metadata_path = Path(output_base_dir) / f"{video_name}_metadata.json"
@@ -689,6 +745,10 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
         
         print(f"✅ Video processing complete!")
         print(f"   Output video: {output_video_path}")
+        print(f"   Binary mask videos: {len(binary_mask_video_paths)} individual mask video(s)")
+        for obj_id, mask_path in sorted(binary_mask_video_paths.items()):
+            object_label = ID_TO_OBJECTS.get(obj_id, f"object_{obj_id}")
+            print(f"     - {mask_path.name} (prompt {obj_id}: {object_label})")
         print(f"   Metadata: {metadata_path}")
 
 
