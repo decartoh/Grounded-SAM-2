@@ -25,6 +25,8 @@ python batch_mixed_segmentation.py \
 ```
 
 ### Video-Only Processing
+
+#### Method 1: Directory-based (Original)
 ```bash
 conda activate grounded-sam2
 
@@ -37,6 +39,18 @@ python batch_video_segmentation_hf.py \
     --text_threshold 0.5 \
     --overlap_threshold 0.8 \
     --prompt_type box
+
+#### Method 2: Video Paths File (NEW!)
+```bash
+conda activate grounded-sam2
+
+python batch_video_segmentation_hf.py \
+    --video_paths_file "/path/to/video_paths.txt" \
+    --prompts_file "/path/to/prompts.txt" \
+    --output_dir "/path/to/output" \
+    --grounding_model "IDEA-Research/grounding-dino-base" \
+    --box_threshold 0.6 \
+    --text_threshold 0.5
 
 # Alternative example with different parameters
 python batch_video_segmentation_hf.py \
@@ -124,7 +138,9 @@ python batch_mixed_segmentation.py \
 
 ## Data Preparation
 
-### 1. Video Directory Structure
+### Method 1: Directory-based Processing (Original)
+
+#### 1. Video Directory Structure
 ```
 your_videos/
 ├── video_001.mp4
@@ -133,7 +149,7 @@ your_videos/
 └── ...
 ```
 
-### 2. Prompts File Format
+#### 2. Prompts File Format
 Create a text file with one line per video (each line can contain multiple comma-separated objects):
 
 ```text
@@ -144,9 +160,46 @@ bird flying in the sky
 dog playing in park
 ```
 
+**Note**: Videos are processed alphabetically by filename, so prompts must match this order.
+
+### Method 2: Video Paths File (NEW!)
+
+This method gives you complete control over video-prompt pairing by specifying exact video paths.
+
+#### 1. Video Paths File Format
+Create a text file with one video path per line:
+
+```text
+/home/user/videos/koala_video.mp4
+/home/user/videos/parrot_clip.mp4
+/home/user/different_folder/hedgehog_running.mp4
+/home/user/archive/person_walking.avi
+/home/user/videos/bird_flying.mov
+```
+
+#### 2. Matching Prompts File
+Create a corresponding prompts file with the same line order:
+
+```text
+koala, eucalyptus tree
+parrot, colorful bird
+hedgehog running, small mammal
+person walking, human
+bird flying in the sky
+```
+
+#### 3. Key Advantages of Video Paths Method
+- **🎯 Precise Control**: No dependency on alphabetical filename sorting
+- **📁 Mixed Locations**: Videos can be in different directories
+- **🔄 Easy Reordering**: Simply rearrange lines in both files
+- **📝 Clear Mapping**: Line-by-line correspondence is explicit
+- **🎬 Format Support**: Supports MP4, AVI, MOV, MKV formats
+
 ## Full Interface Reference
 
 ### Complete Command Line Interface
+
+#### Directory-based Processing
 ```bash
 python batch_video_segmentation_hf.py \
     --input_video_dir <path>              # [REQUIRED] Directory containing MP4 videos to process
@@ -162,10 +215,27 @@ python batch_video_segmentation_hf.py \
     --com                                 # [OPTIONAL] Calculate and visualize center of mass for each segmented object (default: False)
 ```
 
+#### Video Paths File Processing (NEW!)
+```bash
+python batch_video_segmentation_hf.py \
+    --video_paths_file <path>             # [REQUIRED] Text file with video paths (one per line, corresponding to prompts order)
+    --prompts_file <path>                 # [REQUIRED] Text file with prompts (one per line, corresponding to video paths order)
+    --output_dir <path>                   # [REQUIRED] Output directory for segmentation results
+    --grounding_model <model_id>          # [OPTIONAL] HuggingFace model ID for GroundingDINO (default: "IDEA-Research/grounding-dino-tiny")
+    --box_threshold <float>               # [OPTIONAL] Minimum confidence threshold for GroundingDINO detections (default: 0.5)
+    --text_threshold <float>              # [OPTIONAL] Text threshold for GroundingDINO (default: 0.3)
+    --overlap_threshold <float>           # [OPTIONAL] IoU threshold for considering bounding boxes as overlapping (default: 0.9)
+    --prompt_type <type>                  # [OPTIONAL] Prompt type for SAM2 video predictor (choices: point, box, mask; default: box)
+    --sam2_checkpoint <path>              # [OPTIONAL] Path to SAM2 model checkpoint (default: "./checkpoints/sam2.1_hiera_large.pt")
+    --sam2_config <path>                  # [OPTIONAL] Path to SAM2 model config (default: "configs/sam2.1/sam2.1_hiera_l.yaml")
+    --com                                 # [OPTIONAL] Calculate and visualize center of mass for each segmented object (default: False)
+```
+
 ### Quick Reference Flags
 ```bash
-# Required
---input_video_dir     # Directory containing MP4 videos
+# Required (choose one video input method)
+--input_video_dir     # Directory containing MP4 videos (alphabetical processing)
+--video_paths_file    # Text file with video paths (custom order)
 --prompts_file        # Text file: one line per video, objects can be comma-separated
 --output_dir          # Output directory for results
 
@@ -187,9 +257,12 @@ python batch_video_segmentation_hf.py \
 ### Required Parameters
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `--input_video_dir` | `str` | Directory with MP4 videos (processed alphabetically) |
+| `--input_video_dir` | `str` | Directory with MP4 videos (processed alphabetically) **[Method 1]** |
+| `--video_paths_file` | `str` | Text file with video paths (one per line, custom order) **[Method 2]** |
 | `--prompts_file` | `str` | Text file: one line per video, comma-separated objects per line |
 | `--output_dir` | `str` | Output directory for segmented videos and metadata |
+
+**Note**: `--input_video_dir` and `--video_paths_file` are mutually exclusive - use only one.
 
 ### 🔧 Algorithmic Parameters 
 
@@ -256,10 +329,18 @@ python batch_video_segmentation_hf.py \
 
 ## Example Commands
 
-### Basic Usage
+### Basic Usage (Directory Method)
 ```bash
 python batch_video_segmentation_hf.py \
     --input_video_dir "./videos" \
+    --prompts_file "./prompts.txt" \
+    --output_dir "./results"
+```
+
+### Basic Usage (Video Paths Method)
+```bash
+python batch_video_segmentation_hf.py \
+    --video_paths_file "./video_paths.txt" \
     --prompts_file "./prompts.txt" \
     --output_dir "./results"
 ```
@@ -283,6 +364,16 @@ python batch_video_segmentation_hf.py \
     --box_threshold 0.3 \
     --text_threshold 0.2 \
     --overlap_threshold 0.7
+```
+
+### Custom Video Order with Paths File
+```bash
+python batch_video_segmentation_hf.py \
+    --video_paths_file "./my_video_sequence.txt" \
+    --prompts_file "./matching_prompts.txt" \
+    --output_dir "./results" \
+    --grounding_model "IDEA-Research/grounding-dino-base" \
+    --com
 ```
 
 ## Output Structure

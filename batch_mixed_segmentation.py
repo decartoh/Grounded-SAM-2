@@ -284,6 +284,7 @@ def process_single_image(image_path, prompts_text, processor, grounding_model,
     box_list = []
     class_ids = []
     confidences = []
+    detection_labels = []  # Store labels for each mask
     
     for i, (mask, detection) in enumerate(zip(masks, detection_results)):
         if mask.any():  # Only process non-empty masks
@@ -295,6 +296,7 @@ def process_single_image(image_path, prompts_text, processor, grounding_model,
             box_list.append(detection['bbox'])
             class_ids.append(i)
             confidences.append(detection['confidence'])
+            detection_labels.append(detection['label'])  # Store label for mask
     
     if mask_list:
         # Create supervision Detections object
@@ -320,6 +322,30 @@ def process_single_image(image_path, prompts_text, processor, grounding_model,
         output_image_path = output_dir / f"{image_name}_seg{image_path.suffix}"
         cv2.imwrite(str(output_image_path), cv2.cvtColor(annotated_image, cv2.COLOR_RGB2BGR))
         
+        # Save separate binary masks for each detected object
+        # Each mask is saved individually with object label or index
+        binary_mask_paths = []
+        for idx, (mask, label) in enumerate(zip(mask_list, detection_labels)):
+            # Ensure mask is boolean
+            if mask.dtype != bool:
+                mask_bool = mask.astype(bool)
+            else:
+                mask_bool = mask
+            
+            # Convert boolean mask to uint8 (0 or 255) for PNG saving
+            binary_mask = (mask_bool.astype(np.uint8)) * 255
+            
+            # Create filename with object label (sanitize label for filename)
+            object_label = label.replace(' ', '_').replace(',', '_')
+            binary_mask_path = output_dir / f"{image_name}_{object_label}_seg_bin.png"
+            
+            # If label contains special chars or duplicate, use index as fallback
+            if len(binary_mask_path.name) > 200:  # Very long filename protection
+                binary_mask_path = output_dir / f"{image_name}_obj{idx}_seg_bin.png"
+            
+            cv2.imwrite(str(binary_mask_path), binary_mask)
+            binary_mask_paths.append(str(binary_mask_path))
+        
         # Save metadata
         metadata = {
             "image_path": str(image_path),
@@ -344,6 +370,9 @@ def process_single_image(image_path, prompts_text, processor, grounding_model,
             json.dump(metadata, f, indent=2)
         
         print(f"✅ Segmented image saved: {output_image_path}")
+        print(f"✅ Binary masks saved: {len(binary_mask_paths)} individual mask(s)")
+        for mask_path in binary_mask_paths:
+            print(f"   - {Path(mask_path).name}")
         print(f"   Metadata: {metadata_path}")
     else:
         print("❌ No valid masks generated")

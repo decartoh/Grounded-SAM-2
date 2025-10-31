@@ -28,10 +28,16 @@ from prompt_bbox_assignment import OptimalSumAssigner
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Batch video segmentation with HuggingFace GroundingDINO and SAM2")
-    parser.add_argument("--input_video_dir", type=str, required=True,
-                       help="Directory containing MP4 videos to process")
+    
+    # Create mutually exclusive group for video input methods
+    video_input_group = parser.add_mutually_exclusive_group(required=True)
+    video_input_group.add_argument("--input_video_dir", type=str,
+                                  help="Directory containing MP4 videos to process (videos processed alphabetically)")
+    video_input_group.add_argument("--video_paths_file", type=str,
+                                  help="Text file with video paths (one per line, corresponding to prompts file order)")
+    
     parser.add_argument("--prompts_file", type=str, required=True,
-                       help="Text file with prompts (one per line, corresponding to video index)")
+                       help="Text file with prompts (one per line, corresponding to video order)")
     parser.add_argument("--output_dir", type=str, required=True,
                        help="Output directory for segmentation results")
     parser.add_argument("--grounding_model", type=str, default="IDEA-Research/grounding-dino-tiny",
@@ -61,6 +67,26 @@ def load_prompts(prompts_file):
     with open(prompts_file, 'r') as f:
         prompts = [line.strip() for line in f if line.strip()]
     return prompts
+
+
+def load_video_paths(video_paths_file):
+    """Load video file paths from file, one per line."""
+    with open(video_paths_file, 'r') as f:
+        video_paths = [line.strip() for line in f if line.strip()]
+    
+    # Convert to Path objects and validate existence
+    video_files = []
+    for i, path_str in enumerate(video_paths):
+        video_path = Path(path_str)
+        if not video_path.exists():
+            print(f"⚠️  Warning: Video file does not exist: {video_path} (line {i+1})")
+            continue
+        if not video_path.suffix.lower() in ['.mp4', '.avi', '.mov', '.mkv']:
+            print(f"⚠️  Warning: Unsupported video format: {video_path} (line {i+1})")
+            continue
+        video_files.append(video_path)
+    
+    return video_files
 
 
 def get_video_files(video_dir):
@@ -669,11 +695,20 @@ def process_single_video(video_path, prompts_text, processor, grounding_model,
 def main():
     args = parse_args()
     
-    # Load prompts and get video files
+    # Load prompts
     prompts = load_prompts(args.prompts_file)
-    video_files = get_video_files(args.input_video_dir)
     
-    print(f"Found {len(video_files)} video files and {len(prompts)} prompts")
+    # Get video files based on input method
+    if args.input_video_dir:
+        print(f"📁 Loading videos from directory: {args.input_video_dir}")
+        video_files = get_video_files(args.input_video_dir)
+        print(f"Found {len(video_files)} video files (alphabetically sorted)")
+    else:
+        print(f"📄 Loading videos from paths file: {args.video_paths_file}")
+        video_files = load_video_paths(args.video_paths_file)
+        print(f"Loaded {len(video_files)} valid video paths")
+    
+    print(f"Processing {len(video_files)} video files with {len(prompts)} prompts")
     
     if len(video_files) != len(prompts):
         print(f"⚠️  Warning: Number of videos ({len(video_files)}) != number of prompts ({len(prompts)})")
@@ -681,6 +716,10 @@ def main():
         print(f"Processing first {min_count} videos/prompts")
         video_files = video_files[:min_count]
         prompts = prompts[:min_count]
+    
+    if not video_files:
+        print("❌ No valid video files found. Exiting.")
+        return
     
     # Initialize models
     processor, grounding_model, video_predictor, image_predictor, device = initialize_models(
